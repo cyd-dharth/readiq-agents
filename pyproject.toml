@@ -1,0 +1,17 @@
+[project]
+name = "booksummary-agents"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "anthropic>=0.40",
+    "asyncpg>=0.29",
+    "google-genai>=1.0",
+    "openai>=1.40",
+    "pgvector>=0.2.5",
+    "pydantic>=2.6",
+    "pydantic-settings>=2.2",
+    "pypdf>=4.0",
+    "redis>=5.0",
+]

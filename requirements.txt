@@ -1,0 +1,14 @@
+# Core
+redis>=5.0
+asyncpg>=0.29
+pgvector>=0.2.5
+pydantic>=2.6
+pydantic-settings>=2.2
+
+# LLM providers (install the one(s) you use)
+anthropic>=0.40
+openai>=1.40
+google-genai>=1.0
+
+# For the PDF ingest stage (next)
+pypdf>=4.0
