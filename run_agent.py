@@ -23,10 +23,15 @@ async def main() -> None:
         while True:
             try:
                 item = await client.brpop(settings.job_queue, timeout=5)
-            except (RedisTimeoutError, RedisConnectionError) as exc:
+            except RedisConnectionError as exc:
                 log.warning("Redis unavailable, retrying in 5s: %s", exc)
                 await asyncio.sleep(5)
                 continue
+            except RedisTimeoutError as exc:
+                log.warning("Redis command timed out, retrying in 5s: %s", exc)
+                await asyncio.sleep(5)
+                continue
+
             if item is None:
                 continue
 

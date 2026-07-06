@@ -19,6 +19,31 @@ class Settings(BaseSettings):
     openai_api_key: str | None = None
     gemini_api_key: str | None = None
 
+    upload_dir: str = "/tmp/booksummary_uploads"
+
+    toc_scan_pages: int = 10  # how many leading pages to scan for a table of contents (Tier 1)
+    toc_titles_scan_pages: int = 6  # how many leading pages to scan using LLM for chapter titles (Tier 2)
+    unreadable_pdf_min_chars: int = 500  # below this many extracted characters, treat the PDF as image-based
+    tier4_page_lines_char_limit: int = 4000  # Tier 4 input budget before sampling every other page
+
+    gemini_max_retries: int = 10  # raise once on a paid plan, retries are only needed for free-tier quota waits
+    max_concurrent_chapter_summaries: int = 1  # cap parallel chapter LLM calls; raise on a paid plan for full speed
+    gemini_rate_limit_per_minute: int = 5  # caps all Gemini calls project-wide to N req/min; set to 0 to disable
+
+    tavily_api_key: str | None = None
+    search_provider: str = "tavily"
+    min_sources_per_stance: int = 2
+    max_sources_per_stance: int = 6
+
+    embedding_provider: str = "gemini"
+    embedding_model: str = "gemini-embedding-2"
+    embedding_dimensions: int = 1536
+
+    chat_api_host: str = "127.0.0.1"
+    chat_api_port: int = 8001
+    max_context_chapters: int = 3
+    max_history_messages: int = 8
+
 
 @lru_cache
 def get_settings() -> Settings:

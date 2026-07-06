@@ -1,0 +1,28 @@
+services:
+  agents-worker:
+    build: .
+    command: ["python", "run_agent.py"]
+    env_file:
+      - .env
+    restart: unless-stopped
+    networks:
+      - default
+      - readiq-backend_default
+
+  agents-api:
+    build: .
+    ports:
+      - "8001:8001"
+    env_file:
+      - .env
+    restart: unless-stopped
+    networks:
+      - default
+      - readiq-backend_default
+
+networks:
+  readiq-backend_default:
+    external: true
+
+# Requires readiq-backend's docker compose (Postgres, Redis) already running.
+# docker compose up -d  [To run both the worker and the internal chat API]

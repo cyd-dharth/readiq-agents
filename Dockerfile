@@ -1,11 +1,17 @@
-FROM python:3.12-slim
+FROM python:3.13-slim
 
-ENV PIP_NO_CACHE_DIR=1
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
+
+ENV UV_COMPILE_BYTECODE=1 \
+    UV_LINK_MODE=copy
 WORKDIR /srv
 
-COPY requirements.txt .
-RUN pip install -r requirements.txt
+COPY pyproject.toml uv.lock ./
+RUN uv sync --frozen --no-install-project --no-dev
 
 COPY app ./app
+COPY run_agent.py run_api.py ./
 
-CMD ["python", "main.py"]
+ENV PATH="/srv/.venv/bin:$PATH"
+
+CMD ["python", "run_api.py"]
