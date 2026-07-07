@@ -14,4 +14,6 @@ COPY run_agent.py run_api.py ./
 
 ENV PATH="/srv/.venv/bin:$PATH"
 
+EXPOSE 8080
+
 CMD ["python", "run_api.py"]
