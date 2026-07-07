@@ -39,7 +39,7 @@ class Settings(BaseSettings):
     embedding_model: str = "gemini-embedding-2"
     embedding_dimensions: int = 1536
 
-    chat_api_host: str = "127.0.0.1"
+    chat_api_host: str = "0.0.0.0"
     chat_api_port: int = 8001
     max_context_chapters: int = 3
     max_history_messages: int = 8
