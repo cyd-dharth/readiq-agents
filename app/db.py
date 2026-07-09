@@ -12,6 +12,7 @@ if TYPE_CHECKING:
 
 
 async def init_pool() -> asyncpg.Pool:
+    """Create the worker's asyncpg pool, registering pgvector so vector columns can be bound."""
     global _pool
     from pgvector.asyncpg import register_vector
 
@@ -27,6 +28,7 @@ async def init_pool() -> asyncpg.Pool:
 
 
 async def get_book(pool: asyncpg.Pool, book_id: UUID) -> asyncpg.Record | None:
+    """Fetch the core book row (identity, source, and status fields) by id."""
     return await pool.fetchrow(
         "SELECT id, title, author, source_type, source_ref, status, research_status FROM books WHERE id = $1",
         book_id,
@@ -34,6 +36,7 @@ async def get_book(pool: asyncpg.Pool, book_id: UUID) -> asyncpg.Record | None:
 
 
 async def set_status(pool: asyncpg.Pool, book_id: UUID, status: str) -> None:
+    """Update books.status, e.g. to processing, ready, or failed."""
     await pool.execute("UPDATE books SET status = $1 WHERE id = $2", status, book_id)
 
 
@@ -59,6 +62,7 @@ async def create_chapter_stubs(pool: asyncpg.Pool, book_id: UUID, chapters: list
 
 
 async def get_chapters(pool: asyncpg.Pool, book_id: UUID) -> list[asyncpg.Record]:
+    """Fetch all chapters for a book, including any with a NULL summary."""
     return await pool.fetch(
         "SELECT chapter_number, chapter_title, summary FROM chapters WHERE book_id = $1",
         book_id,
@@ -68,6 +72,7 @@ async def get_chapters(pool: asyncpg.Pool, book_id: UUID) -> list[asyncpg.Record
 async def save_chapter_summary(
     pool: asyncpg.Pool, book_id: UUID, chapter_number: int, summary: str
 ) -> None:
+    """Write a single chapter's summary immediately, so progress persists as each chapter finishes."""
     await pool.execute(
         "UPDATE chapters SET summary = $1 WHERE book_id = $2 AND chapter_number = $3",
         summary,
@@ -79,6 +84,7 @@ async def save_chapter_summary(
 async def save_book_summary(
     pool: asyncpg.Pool, book_id: UUID, one_paragraph_summary: str, full_summary: str
 ) -> None:
+    """Write the whole-book one-paragraph and full summaries once synthesized from chapter summaries."""
     await pool.execute(
         """
         UPDATE books
@@ -92,6 +98,7 @@ async def save_book_summary(
 
 
 async def get_book_summary(pool: asyncpg.Pool, book_id: UUID) -> dict | None:
+    """Fetch a book's title, author, and summaries for the chat API to build BookContext from."""
     row = await pool.fetchrow(
         """
         SELECT id, title, author, one_paragraph_summary, full_summary
@@ -136,6 +143,7 @@ async def save_sources(pool: asyncpg.Pool, book_id: UUID, sources: list[dict]) -
 
 
 async def set_research_status(pool: asyncpg.Pool, book_id: UUID, status: str) -> None:
+    """Update books.research_status, e.g. to pending, completed, failed, or skipped."""
     await pool.execute("UPDATE books SET research_status = $1 WHERE id = $2", status, book_id)
 
 

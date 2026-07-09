@@ -20,6 +20,14 @@ log = logging.getLogger(__name__)
 
 
 async def run_pipeline(pool: asyncpg.Pool, settings: Settings, book_id: str) -> None:
+    """Run the full pipeline for one book, or a fast path if it was already processed.
+
+    If status is ready or published and research_status is completed, this is a
+    true no-op. If status is ready or published but research is pending, failed,
+    or skipped, ingest and summarization are assumed done and only embed and
+    research are run. Otherwise runs ingest, summarization, embed, and research
+    from scratch, setting status to ready or failed accordingly.
+    """
     bid = UUID(book_id)  # book id
     book = await db.get_book(pool, bid)
     if book is None:
@@ -82,6 +90,7 @@ async def run_pipeline(pool: asyncpg.Pool, settings: Settings, book_id: str) -> 
 
 
 async def _run_embed_stage(pool, settings, bid, book_id) -> None:
+    """Embed the book's chapter summaries, logging and swallowing any failure."""
     try:
         embedder = get_embedding_client(settings)
         await embed_chapters(
@@ -98,6 +107,11 @@ async def _run_embed_stage(pool, settings, bid, book_id) -> None:
 
 
 async def _run_research_stage(pool, settings, llm, bid, book_id, book) -> None:
+    """Find and save critique/support sources for the book, then mark research_status.
+
+    Sets research_status to completed on success (even if no sources were found)
+    or to failed on any exception, without ever touching books.status.
+    """
     try:
         search = get_search_client(settings)
         book_summary = await db.get_book_summary(pool, bid)

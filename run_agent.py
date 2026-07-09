@@ -14,6 +14,9 @@ log = logging.getLogger("agents.worker")
 
 
 async def main() -> None:
+    """Redis worker entry point. Blocks on BRPOP for one job at a time, runs the full
+    pipeline for each book, and keeps looping (retrying on Redis errors, logging and
+    skipping bad payloads or pipeline failures) until the process is stopped."""
     settings = get_settings()
     pool = await db.init_pool()
     client = redis.from_url(settings.redis_url, decode_responses=True)

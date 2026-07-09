@@ -16,10 +16,13 @@ async def embed_chapters(
     embedder: EmbeddingClient,
     model_name: str,
 ) -> None:
-    """Embed all chapter summaries for a book and write vectors to DB.
+    """Embed all summarized chapters for a book and write vectors back to Postgres.
 
-    Skips chapters with no summary text. Idempotent: re-running overwrites
-    existing embeddings. Never raises: logs and returns on any error.
+    Fetches chapters with a non null, non empty summary, embeds them in one
+    batch call, then writes embedding and model per chapter inside a single
+    transaction. Idempotent: reruns overwrite existing embeddings. Never
+    raises, logs a warning and returns if there is nothing to embed or if the
+    embedding API call fails.
     """
     rows = await pool.fetch(
         """

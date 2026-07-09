@@ -1,7 +1,11 @@
 services:
   agents-worker:
     build: .
-    command: ["python", "run_agent.py"]
+    volumes:
+      - ./certs/Cloudflare_CA_Certificate.pem:/certs/cloudflare_ca.pem:ro
+    entrypoint: ["sh", "-c"]
+    command:
+      - cat /certs/cloudflare_ca.pem >> /srv/.venv/lib/python3.13/site-packages/certifi/cacert.pem && exec python run_agent.py
     env_file:
       - .env
     restart: unless-stopped
@@ -13,6 +17,11 @@ services:
     build: .
     ports:
       - "8001:8001"
+    volumes:
+      - ./certs/Cloudflare_CA_Certificate.pem:/certs/cloudflare_ca.pem:ro
+    entrypoint: ["sh", "-c"]
+    command:
+      - cat /certs/cloudflare_ca.pem >> /srv/.venv/lib/python3.13/site-packages/certifi/cacert.pem && exec python run_api.py
     env_file:
       - .env
     restart: unless-stopped

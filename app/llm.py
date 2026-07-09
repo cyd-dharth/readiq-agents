@@ -28,6 +28,7 @@ class _RateLimiter:
         self._next_allowed_at: float | None = None
 
     async def wait_for_turn(self) -> None:
+        """Block until the next call is allowed under the configured rate, if pacing is enabled."""
         if self._min_interval <= 0:
             return
         async with self._lock:
@@ -42,6 +43,7 @@ class LLMClient(abc.ABC):
 
     @abc.abstractmethod
     async def complete(self, system: str, user: str, max_tokens: int) -> str:
+        """Return a freeform text completion for the given system and user prompts."""
         ...
 
     @abc.abstractmethod
@@ -55,13 +57,17 @@ class LLMClient(abc.ABC):
 
 
 class AnthropicClient(LLMClient):
+    """LLMClient backed by Anthropic's Messages API (anthropic.AsyncAnthropic)."""
+
     def __init__(self, api_key: str, model: str) -> None:
+        """Construct the Anthropic SDK client, importing the SDK lazily."""
         from anthropic import AsyncAnthropic  # lazy: only used providers need installing
 
         self._client = AsyncAnthropic(api_key=api_key)
         self._model = model
 
     async def complete(self, system: str, user: str, max_tokens: int) -> str:
+        """Call messages.create and concatenate the response's text blocks."""
         resp = await self._client.messages.create(
             model=self._model,
             max_tokens=max_tokens,
@@ -71,6 +77,7 @@ class AnthropicClient(LLMClient):
         return "".join(b.text for b in resp.content if getattr(b, "type", None) == "text")
 
     async def complete_json(self, system: str, user: str, max_tokens: int, schema: type[BaseModel]) -> dict:
+        """Force tool use with a synthetic structured_output tool so Anthropic returns schema-matching JSON."""
         # Force tool use so the model must return JSON matching the schema.
         tool_name = "structured_output"
         resp = await self._client.messages.create(
@@ -93,13 +100,17 @@ class AnthropicClient(LLMClient):
 
 
 class OpenAIClient(LLMClient):
+    """LLMClient backed by OpenAI's chat completions API (openai.AsyncOpenAI)."""
+
     def __init__(self, api_key: str, model: str) -> None:
+        """Construct the OpenAI SDK client, importing the SDK lazily."""
         from openai import AsyncOpenAI
 
         self._client = AsyncOpenAI(api_key=api_key)
         self._model = model
 
     async def complete(self, system: str, user: str, max_tokens: int) -> str:
+        """Call chat.completions.create and return the message content."""
         resp = await self._client.chat.completions.create(
             model=self._model,
             max_tokens=max_tokens,
@@ -111,6 +122,7 @@ class OpenAIClient(LLMClient):
         return resp.choices[0].message.content or ""
 
     async def complete_json(self, system: str, user: str, max_tokens: int, schema: type[BaseModel]) -> dict:
+        """Use beta.chat.completions.parse with response_format=schema for native structured output."""
         resp = await self._client.beta.chat.completions.parse(
             model=self._model,
             max_tokens=max_tokens,
@@ -127,6 +139,7 @@ class OpenAIClient(LLMClient):
 
 
 def _gemini_retry_delay_seconds(exc: Exception) -> float:
+    """Parse the wait time Gemini suggests in a 429 error message, falling back to a default backoff."""
     # The API embeds the suggested wait in the error message, e.g. "Please retry in 17.03s".
     match = re.search(r"retry in (\d+(?:\.\d+)?)s", str(exc))
     if match:
@@ -135,6 +148,10 @@ def _gemini_retry_delay_seconds(exc: Exception) -> float:
 
 
 async def _with_gemini_retry(call: Callable[[], Awaitable[_T]], max_retries: int) -> _T:
+    """Retry call on a 429 ClientError, sleeping for the API's suggested delay each time.
+
+    Any other error, or exhausting max_retries, is re-raised immediately.
+    """
     from google.genai.errors import ClientError
 
     for attempt in range(max_retries):
@@ -148,7 +165,10 @@ async def _with_gemini_retry(call: Callable[[], Awaitable[_T]], max_retries: int
 
 
 class GeminiClient(LLMClient):
+    """LLMClient backed by google.genai. Adds 429 retry with backoff and a shared per-minute rate limiter."""
+
     def __init__(self, api_key: str, model: str, max_retries: int, rate_limit_per_minute: int) -> None:
+        """Construct the Gemini SDK client and its retry/rate-limiter settings, importing the SDK lazily."""
         from google import genai
 
         self._client = genai.Client(api_key=api_key)
@@ -157,6 +177,7 @@ class GeminiClient(LLMClient):
         self._rate_limiter = _RateLimiter(rate_limit_per_minute)
 
     async def complete(self, system: str, user: str, max_tokens: int) -> str:
+        """Call generate_content under rate limiting and 429 retry, returning the response text."""
         from google.genai import types
 
         async def call() -> str:
@@ -174,6 +195,7 @@ class GeminiClient(LLMClient):
         return await _with_gemini_retry(call, self._max_retries)
 
     async def complete_json(self, system: str, user: str, max_tokens: int, schema: type[BaseModel]) -> dict:
+        """Call generate_content with response_schema for native JSON output, under rate limiting and retry."""
         from google.genai import types
 
         async def call() -> dict:
@@ -196,6 +218,7 @@ class GeminiClient(LLMClient):
 
 
 def get_llm(settings: Settings) -> LLMClient:
+    """Factory: build the LLMClient selected by settings.llm_provider, guarding on the matching API key."""
     provider = settings.llm_provider.lower()
     if provider == "anthropic":
         if not settings.anthropic_api_key:

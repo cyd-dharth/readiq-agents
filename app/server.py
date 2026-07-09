@@ -19,6 +19,8 @@ _pool: asyncpg.Pool | None = None
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    """FastAPI lifespan: creates this API's own asyncpg pool (with pgvector registered)
+    on startup and closes it on shutdown. Separate from the worker's pool in app/db.py."""
     global _pool
     from pgvector.asyncpg import register_vector
 
@@ -40,6 +42,9 @@ app = FastAPI(title="Book Summary Agents Internal API", lifespan=lifespan)
 
 @app.post("/chat", response_model=ChatResponse)
 async def chat(req: ChatRequest) -> ChatResponse:
+    """Handle POST /chat: validate book_id, load the book's context from the DB,
+    retrieve relevant chapter chunks and sources, and generate a grounded answer
+    via the configured LLM."""
     settings = get_settings()
     if _pool is None:
         raise HTTPException(status_code=503, detail="DB pool not ready")
@@ -91,4 +96,5 @@ async def chat(req: ChatRequest) -> ChatResponse:
 
 @app.get("/health")
 async def health():
+    """Simple liveness check endpoint."""
     return {"status": "ok"}

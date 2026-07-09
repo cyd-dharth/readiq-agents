@@ -235,6 +235,7 @@ def _extract_toc_titles(book) -> dict[str, str]:
     title_map: dict[str, str] = {}
 
     def _walk(toc_items):
+        """Recursively walk nested TOC entries (Section, [children]) tuples or Link objects, populating title_map."""
         for item in toc_items:
             if isinstance(item, tuple):
                 # (Section, [children]) tuple
