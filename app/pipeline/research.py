@@ -25,6 +25,8 @@ _SUPPORT_SYSTEM = (
 
 
 class SourceItem(BaseModel):
+    """A scored, LLM-evaluated search result ready to be saved as a book source."""
+
     stance: str
     source_type: str
     title: str
@@ -38,11 +40,15 @@ class SourceItem(BaseModel):
 
 
 class ResearchResult(BaseModel):
+    """Final output of run_research: qualifying critique and support sources for a book."""
+
     critiques: list[SourceItem] = []
     supports: list[SourceItem] = []
 
 
 class _EvaluatedItem(BaseModel):
+    """One LLM-scored search result before it is converted into a SourceItem."""
+
     title: str
     url: str
     author_or_outlet: str | None = None
@@ -54,10 +60,13 @@ class _EvaluatedItem(BaseModel):
 
 
 class _EvaluatedItems(BaseModel):
+    """Wrapper schema for the LLM's complete_json evaluate response, a list of _EvaluatedItem."""
+
     items: list[_EvaluatedItem]
 
 
 def _critique_search_queries(title: str, author: str | None) -> list[str]:
+    """Build the initial search queries for the critique sub-agent."""
     queries = [
         f"{title} {author or ''} criticism".strip(),
         f"{title} {author or ''} critique academic".strip(),
@@ -69,6 +78,7 @@ def _critique_search_queries(title: str, author: str | None) -> list[str]:
 
 
 def _support_search_queries(title: str, author: str | None) -> list[str]:
+    """Build the initial search queries for the support sub-agent."""
     queries = [
         f"books similar to {title} {author or ''}".strip(),
         f"{title} {author or ''} related works".strip(),
@@ -88,6 +98,7 @@ def _evaluate_prompt(
     stance: str,
     results: list[SearchResult],
 ) -> str:
+    """Build the user prompt asking the LLM to score, filter, and paraphrase search results into sources."""
     by = f" by {author}" if author else ""
     results_block = "\n\n".join(
         f"Title: {r.title}\nURL: {r.url}\nSnippet: {r.snippet}" for r in results
@@ -119,6 +130,7 @@ def _evaluate_prompt(
 
 
 def _dedupe_by_url(results: list[SearchResult], seen_urls: set[str]) -> list[SearchResult]:
+    """Filter out results whose URL is already in seen_urls, and add new ones to that set."""
     unique = []
     for r in results:
         if r.url in seen_urls:
@@ -129,6 +141,7 @@ def _dedupe_by_url(results: list[SearchResult], seen_urls: set[str]) -> list[Sea
 
 
 async def _search_all(search: SearchClient, queries: list[str]) -> list[SearchResult]:
+    """Run all queries concurrently and flatten the per-query result lists into one list."""
     results_per_query = await asyncio.gather(*(search.search(q, max_results=5) for q in queries))
     flat = [r for results in results_per_query for r in results]
     return flat
@@ -143,6 +156,7 @@ async def _evaluate_results(
     results: list[SearchResult],
     max_tokens: int,
 ) -> list[_EvaluatedItem]:
+    """Send search results to the LLM for scoring and paraphrasing, in one complete_json call. Returns empty if there are no results."""
     if not results:
         return []
     evaluated = _EvaluatedItems.model_validate(
@@ -157,10 +171,12 @@ async def _evaluate_results(
 
 
 def _passes_filter(item: _EvaluatedItem) -> bool:
+    """Keep an evaluated item only if both relevance and quality score at least 2."""
     return item.relevance_score >= 2 and item.quality_score >= 2
 
 
 def _to_source_item(item: _EvaluatedItem, stance: str) -> SourceItem:
+    """Convert an LLM-evaluated item into the SourceItem shape saved to the DB."""
     return SourceItem(
         stance=stance,
         source_type=item.source_type,
@@ -188,6 +204,13 @@ async def _run_stance_agent(
     queries: list[str],
     retry_queries: list[str],
 ) -> list[SourceItem]:
+    """Run one stance's full search-evaluate-filter flow, retrying with extra queries if too few items qualify.
+
+    Searches all queries, dedupes by URL, and sends unique results to the LLM
+    for scoring. If fewer than min_items pass the score filter, runs
+    retry_queries and merges in any newly qualifying, not-yet-seen items.
+    Sorts by combined score descending and truncates to max_items.
+    """
     seen_urls: set[str] = set()
 
     results = await _search_all(search, queries)
@@ -229,6 +252,7 @@ async def _run_critique_agent(
     min_items: int,
     max_items: int,
 ) -> list[SourceItem]:
+    """Find sourced intellectual opposition to the book's arguments via the critique stance agent."""
     retry_queries = ["{0} academic criticism philosophy".format(title)]
     if author:
         retry_queries.append(f"{author} critics scholars debate")
@@ -250,6 +274,7 @@ async def _run_support_agent(
     min_items: int,
     max_items: int,
 ) -> list[SourceItem]:
+    """Find related and reinforcing works for the book via the support stance agent."""
     retry_queries = [f"books extending {title} arguments"]
     if author:
         retry_queries.append(f"academic works agreeing with {author}")
@@ -271,6 +296,12 @@ async def run_research(
     min_items: int,
     max_items: int,
 ) -> ResearchResult:
+    """Run the critique and support sub-agents concurrently and combine their qualifying sources.
+
+    Each sub-agent is wrapped so that one failing logs a warning and returns
+    an empty list for that stance rather than aborting the other or raising.
+    Writes nothing to the DB itself; the caller persists the result.
+    """
     async def safe_run(agent_name: str, coro) -> list[SourceItem]:
         try:
             return await coro

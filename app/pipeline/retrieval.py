@@ -27,6 +27,8 @@ _SUMMARY_KEYWORDS = frozenset([
 
 @dataclass
 class RetrievedContext:
+    """Context assembled for one chat question: chapter excerpts plus sourced stances."""
+
     chapter_chunks: list[str]
     sources_critique: list[str]
     sources_support: list[str]
@@ -34,6 +36,11 @@ class RetrievedContext:
 
 
 def _question_type(question: str) -> str:
+    """Classify a question as critique, support, summary, or default by keyword match.
+
+    Currently only used to decide whether vector search can be skipped (summary
+    questions); it does not filter which sources are returned.
+    """
     q = question.lower()
     if any(kw in q for kw in _CRITIQUE_KEYWORDS):
         return "critique"
@@ -45,6 +52,7 @@ def _question_type(question: str) -> str:
 
 
 def _format_source(row) -> str:
+    """Render a sources row as a single citation line with title, outlet, insight, and URL."""
     by = f" by {row['author_or_outlet']}" if row["author_or_outlet"] else ""
     return (
         f"{row['title']}{by}: {row['insight']} "
@@ -59,6 +67,15 @@ async def retrieve(
     question: str,
     max_chapters: int = 3,
 ) -> RetrievedContext:
+    """Assemble chat context for a question: never raises, degrades to empty on failure.
+
+    Skips vector search entirely for summary type questions since the caller
+    already has the full book summary. For other question types, embeds the
+    question and runs a pgvector cosine distance search over chapter embeddings,
+    catching and logging any failure instead of propagating it. Always attempts
+    to fetch critique and support sources regardless of question type, in its
+    own try/except.
+    """
     qtype = _question_type(question)
     chapter_chunks: list[str] = []
     used_vector = False

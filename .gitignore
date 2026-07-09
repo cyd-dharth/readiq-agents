@@ -12,3 +12,4 @@ wheels/
 # Environment secrets
 .env
 .claude
+certs/Cloudflare_CA_Certificate.pem

@@ -27,6 +27,7 @@ by title and outlet.
 
 
 def _build_system(ctx: BookContext) -> str:
+    """Fill the chat system prompt template with the book's title and author."""
     author_part = f" by {ctx.author}" if ctx.author else ""
     return _CHAT_SYSTEM_TEMPLATE.format(
         title=ctx.title,
@@ -41,6 +42,7 @@ def _build_user_prompt(
     history: list[dict],
     max_history_messages: int,
 ) -> str:
+    """Build the user prompt from book overview, retrieved chunks, sources, history, and question."""
     parts: list[str] = []
 
     if book_ctx.one_paragraph_summary:
@@ -93,6 +95,7 @@ async def answer_question(
     max_tokens: int,
     max_history_messages: int = 8,
 ) -> str:
+    """Build the system and user prompts and get a completion from the LLM client."""
     system = _build_system(book_ctx)
     user = _build_user_prompt(question, book_ctx, retrieved, history, max_history_messages)
     return await llm.complete(system, user, max_tokens)

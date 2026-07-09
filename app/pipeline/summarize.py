@@ -26,32 +26,43 @@ _FROM_CHAPTERS_SYSTEM = (
 
 
 class ChapterSummary(BaseModel):
+    """A single chapter's number, optional title, and generated summary text."""
+
     chapter_number: int
     chapter_title: str | None = None
     summary: str
 
 
 class SummaryResult(BaseModel):
+    """The full output of a summarization run: whole-book summaries plus all chapter summaries."""
+
     one_paragraph_summary: str
     full_summary: str
     chapters: list[ChapterSummary]
 
 
 class _WholeBook(BaseModel):
+    """LLM structured-output schema for the whole-book TL;DR and full summary."""
+
     one_paragraph_summary: str
     full_summary: str
 
 
 class _Chapters(BaseModel):
+    """LLM structured-output schema for the name_only path's full chapter list with summaries."""
+
     chapters: list[ChapterSummary]
 
 
 class _SequentialChapter(BaseModel):
+    """LLM structured-output schema for one chapter's summary plus the updated rolling story digest."""
+
     summary: str
     updated_digest: str
 
 
 def _whole_prompt(title: str, author: str | None) -> str:
+    """Build the name_only prompt asking the LLM to summarize a book it already knows from its own knowledge."""
     by = f" by {author}" if author else ""
     return (
         f"Summarize the book '{title}'{by}. "
@@ -61,6 +72,7 @@ def _whole_prompt(title: str, author: str | None) -> str:
 
 
 def _chapters_prompt(title: str, author: str | None) -> str:
+    """Build the name_only prompt asking the LLM to list and summarize every chapter from its own knowledge."""
     by = f" by {author}" if author else ""
     return (
         f"List the chapters of '{title}'{by}, in order. For each chapter give a "
@@ -72,6 +84,12 @@ def _chapters_prompt(title: str, author: str | None) -> str:
 async def summarize_from_knowledge(
     llm: LLMClient, title: str, author: str | None, max_tokens: int
 ) -> SummaryResult:
+    """
+    The name_only path: generate the whole-book summary and the full chapter
+    list purely from the LLM's own knowledge of the book, via two separate
+    complete_json calls (chapters get 3x the token budget since a book can
+    have 15-25 chapters).
+    """
     whole = _WholeBook.model_validate(
         await llm.complete_json(_SYSTEM, _whole_prompt(title, author), max_tokens, _WholeBook)
     )
@@ -87,6 +105,7 @@ async def summarize_from_knowledge(
 
 
 def _chapter_summary_prompt(chapter: dict) -> str:
+    """Build the concurrent-mode prompt to summarize one chapter's raw text in isolation."""
     title_line = f"Chapter title: {chapter['chapter_title']}\n" if chapter.get("chapter_title") else ""
     return (
         f"{title_line}"
@@ -97,6 +116,7 @@ def _chapter_summary_prompt(chapter: dict) -> str:
 
 
 def _sequential_chapter_prompt(chapter: dict, digest_so_far: str) -> str:
+    """Build the sequential-mode prompt: summarize one chapter given the rolling digest so far, and ask for an updated digest back."""
     title_line = f"Chapter title: {chapter['chapter_title']}\n" if chapter.get("chapter_title") else ""
     digest_block = (
         f"Digest of the story so far: {digest_so_far}\n\n"
@@ -117,6 +137,7 @@ def _sequential_chapter_prompt(chapter: dict, digest_so_far: str) -> str:
 
 
 def _from_chapters_whole_prompt(chapter_summaries: list[ChapterSummary]) -> str:
+    """Build the prompt to synthesize the whole-book summary from chapter summaries only, never the raw text."""
     joined = "\n\n".join(
         f"Chapter {c.chapter_number}"
         + (f" ({c.chapter_title})" if c.chapter_title else "")
@@ -140,6 +161,7 @@ async def _summarize_chapter(
     pool: asyncpg.Pool,
     book_id: UUID,
 ) -> ChapterSummary:
+    """Concurrent-mode helper: summarize one chapter under the semaphore's concurrency cap and save it immediately."""
     async with semaphore:
         text = await llm.complete(_CHAPTER_TEXT_SYSTEM, _chapter_summary_prompt(chapter), max_tokens)
     await db.save_chapter_summary(pool, book_id, chapter["chapter_number"], text)
@@ -157,6 +179,13 @@ async def _summarize_chapters_sequential(
     pool: asyncpg.Pool,
     book_id: UUID,
 ) -> list[ChapterSummary]:
+    """
+    Sequential-mode helper: summarize chapters one at a time in ascending
+    order, carrying a rolling 2-3 sentence digest forward from one chapter's
+    complete_json call to the next, saving each summary to the DB as it is
+    produced. On resume the digest starts empty rather than being
+    reconstructed from already-done chapters.
+    """
     # Sequential mode does not reconstruct the digest from already-done
     # chapters on resume; it starts empty from wherever the todo list begins.
     digest = ""
@@ -191,6 +220,13 @@ async def summarize_from_chapters(
     book_id: UUID,
     sequential: bool = True,
 ) -> SummaryResult:
+    """
+    The pdf/epub path: summarize chapters (skipping any already summarized in
+    a prior, possibly crashed, run) either sequentially with a rolling digest
+    for narrative continuity, or concurrently up to max_concurrent_chapters,
+    then synthesize the whole-book summary from all chapter summaries and
+    write it to the DB.
+    """
     # Chapter stubs (title, number, summary=NULL) already exist in the DB by
     # this point. Skip chapters a prior run already summarized so a crash
     # mid-book does not repeat completed LLM calls.

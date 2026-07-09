@@ -4,6 +4,10 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
+    """Application configuration loaded from environment variables and .env, covering
+    core infra, LLM/embedding/search provider selection, pipeline tuning, and the
+    chat API."""
+
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
     database_url: str = "postgresql://postgres:root@localhost:5432/postgres"
@@ -47,4 +51,5 @@ class Settings(BaseSettings):
 
 @lru_cache
 def get_settings() -> Settings:
+    """Return the process-wide cached Settings instance, constructed once on first call."""
     return Settings()
